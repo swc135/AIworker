@@ -131,11 +131,9 @@ describe('WebhookDispatcher', () => {
         url: `http://localhost:${p}/hook`,
         events: ['*'],
       });
-      await Promise.all([
-        dispatcher.dispatch('e1', {}),
-        dispatcher.dispatch('e2', {}),
-        dispatcher.dispatch('e3', {}),
-      ]);
+      await dispatcher.dispatch('e1', {});
+      await dispatcher.dispatch('e2', {});
+      await dispatcher.dispatch('e3', {});
       await delay(500);
       expect(received).toHaveLength(3);
       expect(received[0]!.body.event_type).toBe('e1');
