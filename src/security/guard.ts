@@ -131,4 +131,8 @@ export class Guardrail {
   getViolations(): Violation[] {
     return [...this.violations];
   }
+
+  violationCount(): number {
+    return this.violations.length;
+  }
 }

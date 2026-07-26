@@ -2,6 +2,7 @@ import type { Message, ToolCall, ToolDefinition, ChatResponse, ContentBlock, Too
 import type { LLMProvider } from '@/types';
 import { MCPDispatcher } from '@/mcp/client';
 import { createLogger } from '@/utils/logger';
+import { MetricsCollector } from '@/utils/metrics';
 
 const logger = createLogger('AgentLoop');
 
@@ -10,10 +11,15 @@ const MAX_ITERATIONS = 50;
 export class AgentLoop {
   private llmProvider: LLMProvider;
   private mcpDispatcher: MCPDispatcher;
+  private metrics?: MetricsCollector;
 
   constructor(llmProvider: LLMProvider, mcpDispatcher: MCPDispatcher) {
     this.llmProvider = llmProvider;
     this.mcpDispatcher = mcpDispatcher;
+  }
+
+  setMetrics(metrics: MetricsCollector): void {
+    this.metrics = metrics;
   }
 
   async run(context: AgentContext): Promise<{ messages: Message[]; finalContent: string }> {
@@ -26,6 +32,10 @@ export class AgentLoop {
       logger.debug(`Agent iteration ${iterations}`);
 
       const response = await this.llmProvider.chat(messages, { tools });
+
+      if (this.metrics) {
+        this.metrics.recordTokens(this.llmProvider.name, response.usage.input_tokens, response.usage.output_tokens);
+      }
 
       const assistantMsg: Message = {
         role: 'assistant',

@@ -1,4 +1,5 @@
 import type { LLMProvider, Message, ChatOptions, ChatResponse, ToolDefinition } from '@/types';
+import { OpenAIProvider } from './openai';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('LLM');
@@ -52,11 +53,23 @@ export class MockLLMProvider implements LLMProvider {
 
 export function createProviderFromConfig(config: {
   name: string;
+  model: string;
   baseURL: string;
   apiKey?: string;
 }): LLMProvider | null {
   logger.info(`Creating LLM provider: ${config.name} → ${config.baseURL}`);
-  // Production would use @ai-sdk/anthropic or similar SDK
-  // For now, use MockLLMProvider for development
+
+  if (config.name === 'openai' && config.apiKey) {
+    return new OpenAIProvider({
+      baseURL: config.baseURL,
+      apiKey: config.apiKey,
+      model: config.model,
+    });
+  }
+
+  if (config.name === 'mock' || !config.apiKey) {
+    return new MockLLMProvider();
+  }
+
   return new MockLLMProvider();
 }

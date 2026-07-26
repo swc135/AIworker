@@ -1,17 +1,19 @@
-import type { TaskConfig, Message } from '../types';
+import type { TaskConfig, Message, LLMProvider } from '../types';
 import { RuleEngine } from '../rules/engine';
 import { SkillLoader, SkillRegistry, SkillExecutor } from '../skills/executor';
-import { MCPDispatcher, BuiltinAdapter, InternalAdapter } from '../mcp/index';
+import { MCPDispatcher, BuiltinAdapter, InternalAdapter, FileSystemAdapter, WebAdapter } from '../mcp/index';
 import { RemoteAdapter } from '../mcp/adapters/remote';
 import { SessionManager } from './session';
 import { AgentLoop, type AgentContext } from './agent';
-import { MockLLMProvider } from '../llm/provider';
+import { MockLLMProvider, createProviderFromConfig } from '../llm/index';
 import { ConfigLoader } from '../cli/config';
 import { Guardrail } from '../security/guard';
 import { GitHelper } from '../git/helper';
 import { MemorySystem } from './memory';
+import { SessionStore } from './session_store';
 import { resolve } from 'path';
 import { createLogger } from '../utils/logger';
+import { MetricsCollector } from '../utils/metrics';
 
 const logger = createLogger('Orchestrator');
 
@@ -26,14 +28,17 @@ export class TaskOrchestrator {
   mcpDispatcher: MCPDispatcher;
   sessionManager: SessionManager;
   agentLoop: AgentLoop;
-  llmProvider: MockLLMProvider;
+  llmProvider: LLMProvider;
   configLoader: ConfigLoader;
   guardrail: Guardrail;
   gitHelper: GitHelper | null = null;
   memorySystem: MemorySystem | null = null;
+  sessionStore: SessionStore | null = null;
+  metrics: MetricsCollector;
   private workspace: string = process.cwd();
 
   constructor() {
+    this.metrics = new MetricsCollector();
     this.ruleEngine = new RuleEngine(RULES_BASE_PATH);
     this.skillLoader = new SkillLoader();
     this.skillRegistry = new SkillRegistry();
@@ -67,6 +72,8 @@ export class TaskOrchestrator {
     this.mcpDispatcher.registerAdapter(new BuiltinAdapter());
     this.mcpDispatcher.registerAdapter(new InternalAdapter());
     this.mcpDispatcher.registerAdapter(new RemoteAdapter(true));
+    this.mcpDispatcher.registerAdapter(new FileSystemAdapter(this.workspace));
+    this.mcpDispatcher.registerAdapter(new WebAdapter());
   }
 
   private setupMatchRules(): void {
@@ -79,6 +86,7 @@ export class TaskOrchestrator {
   }
 
   private setupMockResponses(): void {
+    if (!(this.llmProvider instanceof MockLLMProvider)) return;
     this.llmProvider.setResponse('hello', ['Hello! I am OpenCode, your AI coding assistant on the MonkeyCode-AI platform.']);
     this.llmProvider.setResponse('help', [
       'I can help you with:\n- Coding and debugging\n- Deploying and previewing web projects\n- Feature design with EARS patterns\n- Implementation planning\n- Project documentation\n- Publishing to Showcase',
@@ -99,6 +107,26 @@ export class TaskOrchestrator {
     const config = await this.configLoader.load();
     logger.info(`Model: ${config.model}`);
 
+    // Create LLM provider from config
+    if (config.modelConfig?.provider && config.modelConfig?.apiKey) {
+      const provider = createProviderFromConfig({
+        name: config.modelConfig.provider,
+        model: config.modelConfig.model || config.model,
+        baseURL: config.modelConfig.baseURL || 'https://api.openai.com/v1',
+        apiKey: config.modelConfig.apiKey,
+      });
+      if (provider) {
+        this.llmProvider = provider;
+        this.agentLoop = new AgentLoop(this.llmProvider, this.mcpDispatcher);
+        logger.info(`Using provider: ${config.modelConfig.provider}`);
+      }
+    } else {
+      this.setupMockResponses();
+    }
+
+    // Connect metrics collector
+    this.agentLoop.setMetrics(this.metrics);
+
     // Load rules from global and project paths
     for (const pattern of config.instructions) {
       await this.ruleEngine.loadFromGlob(pattern);
@@ -116,6 +144,10 @@ export class TaskOrchestrator {
     // Initialize git helper
     this.gitHelper = new GitHelper(this.workspace);
     await this.gitHelper.initSubmodules();
+
+    // Session store for persistence
+    this.sessionStore = new SessionStore(this.workspace);
+    await this.sessionStore.loadAll();
 
     // Load memory
     this.memorySystem = new MemorySystem(this.workspace);
@@ -191,11 +223,40 @@ export class TaskOrchestrator {
     };
 
     // Run agent loop
-    const result = await this.agentLoop.run(context);
-    this.sessionManager.updateStatus(session.session_id, 'idle');
+    const startTime = Date.now();
+    this.metrics.recordTask();
+    try {
+      const result = await this.agentLoop.run(context);
+      this.sessionManager.updateStatus(session.session_id, 'idle');
 
-    logger.info(`Task ${taskConfig.task_id} completed`);
-    return result.finalContent;
+      // Persist session with conversation history
+      if (this.sessionStore) {
+        await this.sessionStore.save({
+          session_id: session.session_id,
+          task_id: taskConfig.task_id,
+          created_at: session.created_at,
+          messages: result.messages,
+        });
+      }
+
+      logger.info(`Task ${taskConfig.task_id} completed`);
+      return result.finalContent;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      this.metrics.recordAPIEvent({
+        toolName: `task_${taskConfig.task_id}`,
+        success: false,
+        durationMs: Date.now() - startTime,
+        error: errorMessage,
+      });
+      throw err;
+    } finally {
+      this.metrics.recordAPIEvent({
+        toolName: `task_${taskConfig.task_id}`,
+        success: true,
+        durationMs: Date.now() - startTime,
+      });
+    }
   }
 
   private getViolationResponse(category?: string): string {

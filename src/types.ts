@@ -150,3 +150,17 @@ export interface ModelInfo {
     output: number;
   };
 }
+
+export interface RetryConfig {
+  maxRetries: number;
+  baseDelayMs: number;
+  maxDelayMs: number;
+  retryableStatusCodes?: number[];
+}
+
+export const DEFAULT_RETRY_CONFIG: RetryConfig = {
+  maxRetries: 3,
+  baseDelayMs: 1000,
+  maxDelayMs: 30000,
+  retryableStatusCodes: [429, 500, 502, 503, 504],
+};

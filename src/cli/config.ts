@@ -28,6 +28,12 @@ export interface OpenCodeConfig {
   disabled_providers: string[];
   instructions: string[];
   skills: SkillConfig;
+  modelConfig?: {
+    provider: string;
+    model?: string;
+    baseURL?: string;
+    apiKey?: string;
+  };
 }
 
 const DEFAULT_CONFIG: OpenCodeConfig = {
@@ -71,6 +77,7 @@ export class ConfigLoader {
           agent: { ...DEFAULT_CONFIG.agent, ...config.agent },
           skills: { ...DEFAULT_CONFIG.skills, ...config.skills },
           provider: config.provider || DEFAULT_CONFIG.provider,
+          modelConfig: config.modelConfig,
         };
       } catch (err) {
         logger.warn(`Failed to load config, using defaults: ${err}`);
@@ -90,6 +97,7 @@ export class ConfigLoader {
       agent: { ...DEFAULT_CONFIG.agent, ...config.agent },
       skills: { ...DEFAULT_CONFIG.skills, ...config.skills },
       provider: config.provider || DEFAULT_CONFIG.provider,
+      modelConfig: config.modelConfig,
     };
   }
 }

@@ -36,6 +36,10 @@ export class MCPDispatcher {
     logger.debug(`Registered MCP adapter: ${adapter.namespace}`);
   }
 
+  listAdapters(): string[] {
+    return [...this.adapters.keys()];
+  }
+
   private extractNamespace(toolName: string): string {
     // Try double-underscore first (complex namespaces like monkeycode-ai_internal)
     let idx = toolName.indexOf('__');
