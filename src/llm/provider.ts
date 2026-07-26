@@ -1,5 +1,6 @@
 import type { LLMProvider, Message, ChatOptions, ChatResponse, ToolDefinition } from '@/types';
 import { OpenAIProvider } from './openai';
+import { AnthropicProvider } from './anthropic';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('LLM');
@@ -61,6 +62,14 @@ export function createProviderFromConfig(config: {
 
   if (config.name === 'openai' && config.apiKey) {
     return new OpenAIProvider({
+      baseURL: config.baseURL,
+      apiKey: config.apiKey,
+      model: config.model,
+    });
+  }
+
+  if (config.name === 'anthropic' && config.apiKey) {
+    return new AnthropicProvider({
       baseURL: config.baseURL,
       apiKey: config.apiKey,
       model: config.model,

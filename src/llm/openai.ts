@@ -1,6 +1,8 @@
 import type { LLMProvider, Message, ChatOptions, ChatResponse, ContentBlock, ToolCall, ToolUseBlock } from '@/types';
 import { createLogger } from '@/utils/logger';
 import { withRetryOnHttpStatus } from '@/utils/retry';
+import { RateLimiter } from '@/security/rate_limiter';
+import type { RateLimitConfig } from '@/security/rate_limiter';
 
 const logger = createLogger('OpenAI');
 
@@ -92,8 +94,9 @@ export class OpenAIProvider implements LLMProvider {
   name = 'openai';
   private config: OpenAIProviderConfig;
   private _streamToolBuffers: Array<{ id: string; name: string; args: string }> = [];
+  private rateLimiter: RateLimiter;
 
-  constructor(config: OpenAIProviderConfig) {
+  constructor(config: OpenAIProviderConfig, rateLimitConfig?: Partial<RateLimitConfig>) {
     this.config = {
       timeout: 120000,
       ...config,
@@ -101,6 +104,11 @@ export class OpenAIProvider implements LLMProvider {
     if (!this.config.baseURL.endsWith('/')) {
       this.config.baseURL += '/';
     }
+    this.rateLimiter = new RateLimiter(rateLimitConfig);
+  }
+
+  getRateLimiter(): RateLimiter {
+    return this.rateLimiter;
   }
 
   async chat(messages: Message[], options?: ChatOptions): Promise<ChatResponse> {
@@ -108,19 +116,26 @@ export class OpenAIProvider implements LLMProvider {
 
     logger.debug(`Chat request: ${messages.length} messages, model=${this.config.model}`);
 
-    const response = await this.fetchWithTimeout(`${this.config.baseURL}chat/completions`, {
-      method: 'POST',
-      headers: this.buildHeaders(),
-      body: JSON.stringify(body),
-    });
+    await this.rateLimiter.acquire();
+    try {
+      this.rateLimiter.recordRequest();
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`OpenAI API error ${response.status}: ${errorText}`);
+      const response = await this.fetchWithTimeout(`${this.config.baseURL}chat/completions`, {
+        method: 'POST',
+        headers: this.buildHeaders(),
+        body: JSON.stringify(body),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`OpenAI API error ${response.status}: ${errorText}`);
+      }
+
+      const data = (await response.json()) as OpenAIResponse;
+      return this.parseResponse(data);
+    } finally {
+      this.rateLimiter.release();
     }
-
-    const data = (await response.json()) as OpenAIResponse;
-    return this.parseResponse(data);
   }
 
   async *chatStream(messages: Message[], options?: ChatOptions): AsyncIterable<{ type: string; text?: string }> {
