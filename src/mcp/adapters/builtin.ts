@@ -3,6 +3,7 @@ import type { ToolAdapter } from '@/mcp/client';
 import { createLogger } from '@/utils/logger';
 import { execSync, spawn } from 'child_process';
 import { writeFile, mkdir } from 'fs/promises';
+import { mkdirSync } from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 import { resolve } from 'path';
 import type { BackgroundTerminal } from '@/types';
@@ -22,7 +23,11 @@ export class BuiltinAdapter implements ToolAdapter {
   private terminals: Map<string, TerminalEntry> = new Map();
 
   constructor() {
-    mkdir(LOG_DIR, { recursive: true }).catch(() => {});
+    try {
+      mkdirSync(LOG_DIR, { recursive: true });
+    } catch {
+      logger.warn(`Failed to create log directory: ${LOG_DIR}`);
+    }
   }
 
   listTools(): ToolDefinition[] {
