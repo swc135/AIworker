@@ -91,6 +91,7 @@ interface OpenAIStreamChunk {
 export class OpenAIProvider implements LLMProvider {
   name = 'openai';
   private config: OpenAIProviderConfig;
+  private _streamToolBuffers: Array<{ id: string; name: string; args: string }> = [];
 
   constructor(config: OpenAIProviderConfig) {
     this.config = {
@@ -148,6 +149,7 @@ export class OpenAIProvider implements LLMProvider {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
+    this._streamToolBuffers = [];
 
     try {
       while (true) {
@@ -176,7 +178,15 @@ export class OpenAIProvider implements LLMProvider {
             if (delta?.tool_calls) {
               for (const tc of delta.tool_calls) {
                 if (tc.function?.name) {
-                  yield { type: 'tool_name', text: tc.function.name };
+                  yield { type: 'tool_name', text: `${tc.index}|${tc.id}|${tc.function.name}` };
+                }
+                if (tc.function?.arguments && tc.index !== undefined) {
+                  const existing = this._streamToolBuffers[tc.index] || { id: '', name: '', args: '' };
+                  if (tc.id) existing.id = tc.id;
+                  if (tc.function.name) existing.name = tc.function.name;
+                  existing.args += tc.function.arguments;
+                  this._streamToolBuffers[tc.index] = existing;
+                  yield { type: 'tool_args_delta', text: `${tc.index}|${existing.args}` };
                 }
               }
             }
@@ -184,10 +194,11 @@ export class OpenAIProvider implements LLMProvider {
             // skip malformed chunks
           }
         }
+        }
+      } finally {
+        this._streamToolBuffers = [];
+        reader.releaseLock();
       }
-    } finally {
-      reader.releaseLock();
-    }
   }
 
   countTokens(text: string): number {
