@@ -151,9 +151,10 @@ export class CredentialHelper {
   static async getCredentials(host: string): Promise<{ username: string; password: string } | null> {
     try {
       const input = `protocol=https\nhost=${host}\n`;
-      const output = execSync(`echo "${input}" | git credential fill`, {
+      const output = execSync('git credential fill', {
         encoding: 'utf-8',
         timeout: 10_000,
+        input,
       });
 
       const username = output.match(/username=(.+)/)?.[1];
