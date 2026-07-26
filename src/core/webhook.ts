@@ -54,7 +54,10 @@ export class WebhookDispatcher {
       try {
         await this.sendToEndpoint(url, endpoint, webhookPayload);
       } catch (err) {
-        this.pending.push({ payload: webhookPayload, retryCount: 1 });
+        const failedTask = this.pending.filter((p) => p.payload.task_id === payload.task_id);
+        if (failedTask.length < 10) {
+          this.pending.push({ payload: webhookPayload, retryCount: 1 });
+        }
         logger.error(`Webhook failed for ${url}: ${(err as Error).message}`);
         setTimeout(() => this.flushPending(), 5000);
       }
@@ -83,15 +86,18 @@ export class WebhookDispatcher {
   }
 
   async flushPending(): Promise<void> {
-    const toRetry: WebhookPayload[] = [];
+    const eventTypes = new Set<string>();
+    const payloadsToRetry: WebhookPayload[] = [];
+
     for (const item of this.pending) {
-      if (item.retryCount < this.maxRetries) {
-        toRetry.push(item.payload);
+      if (item.retryCount < this.maxRetries && !eventTypes.has(item.payload.event_type)) {
+        eventTypes.add(item.payload.event_type);
+        payloadsToRetry.push(item.payload);
         item.retryCount++;
       }
     }
 
-    for (const payload of toRetry) {
+    for (const payload of payloadsToRetry) {
       await this.dispatch(payload.event_type, payload.data);
     }
 

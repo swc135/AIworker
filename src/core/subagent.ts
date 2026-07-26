@@ -48,38 +48,38 @@ export class SubagentOrchestrator {
     const task = this.tasks.get(taskId);
     if (!task) throw new Error(`Subagent task not found: ${taskId}`);
 
-    task.status = 'running';
-    task.created_at = Date.now();
+      task.status = 'running';
+      task.completed_at = undefined;
 
-    try {
-      // Build system message with context window limits
-      const contextManager = new ContextWindowManager();
-      const maxTokens = contextManager['maxTokens'];
+      try {
+        // Build system message with context window limits
+        const contextManager = new ContextWindowManager();
+        const maxTokens = contextManager['maxTokens'];
 
-      const messages: Message[] = [
-        { role: 'system', content: task.prompt },
-        { role: 'user', content: `Execute the following task: ${task.description}` },
-      ];
+        const messages: Message[] = [
+          { role: 'system', content: task.prompt },
+          { role: 'user', content: `Execute the following task: ${task.description}` },
+        ];
 
-      const tools = this.filterTools(task.tools);
-      let iterations = 0;
-      const maxIter = task.maxIterations || 30;
+        const tools = this.filterTools(task.tools);
+        let iterations = 0;
+        const maxIter = task.maxIterations || 30;
 
-      while (iterations < maxIter) {
-        iterations++;
-        const trimmed = contextManager.trimToFit(messages, maxTokens || 190000);
+        while (iterations < maxIter) {
+          iterations++;
+          const trimmed = contextManager.trimToFit(messages, maxTokens || 190000);
 
-        const response = await this.llmProvider.chat(trimmed, { tools });
-        
-        const toolUseBlocks: Array<{ type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }> = response.tool_calls.map((tc) => ({
-          type: 'tool_use',
-          id: tc.call_id,
-          name: tc.tool_name,
-          input: tc.parameters as Record<string, unknown>,
-        }));
-        
-        const allContent = toolUseBlocks.length > 0 ? [...response.content, ...toolUseBlocks] : response.content;
-        messages.push({ role: 'assistant', content: allContent });
+          const response = await this.llmProvider.chat(trimmed, { tools });
+
+          const toolUseBlocks: ContentBlock[] = response.tool_calls.map((tc) => ({
+            type: 'tool_use',
+            id: tc.call_id,
+            name: tc.tool_name,
+            input: tc.parameters as Record<string, unknown>,
+          }));
+
+          const allContent = toolUseBlocks.length > 0 ? [...response.content, ...toolUseBlocks] : response.content;
+          messages.push({ role: 'assistant', content: allContent });
 
         if (response.finish_reason === 'stop') {
           const textBlocks = response.content.filter((b) => b.type === 'text') as Array<{ type: 'text'; text: string }>;

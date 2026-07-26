@@ -205,6 +205,7 @@ export class AnthropicProvider implements LLMProvider {
                   stopped = true;
                   for (let i = 0; i < this._streamToolBuffers.length; i++) {
                     const buf = this._streamToolBuffers[i];
+                    if (!buf) continue;
                     if (buf.name && buf.args) {
                       try {
                         yield {

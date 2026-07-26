@@ -176,7 +176,7 @@ export class TaskOrchestrator {
 
     // Create session
     const session = this.sessionManager.create(taskConfig);
-    if (this.gitHelper) this.gitHelper = new GitHelper(taskConfig.workspace);
+    this.gitHelper = new GitHelper(taskConfig.workspace);
 
     // Build system prompt
     const basePrompt = 'You are OpenCode, an AI coding assistant on the MonkeyCode-AI platform.';

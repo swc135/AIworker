@@ -1,4 +1,4 @@
-import { execSync } from 'child_process';
+import { spawnSync } from 'child_process';
 import { fileExists, readTextFile, workspacePath } from '@/utils/fs';
 import { createLogger } from '@/utils/logger';
 import { basename } from 'path';
@@ -14,12 +14,19 @@ export class GitHelper {
 
   exec(args: string): string {
     try {
-      return execSync(`git ${args}`, {
+      const parts = args.split(/\s+/).filter(Boolean);
+      const result = spawnSync('git', parts, {
         cwd: this.workspace,
         encoding: 'utf-8',
         stdio: ['pipe', 'pipe', 'pipe'],
         timeout: 30_000,
-      }).trim();
+      });
+      if (result.error || result.status !== 0) {
+        const stderr = result.error?.message ?? result.stderr ?? String(result.status);
+        logger.warn(`Git command failed: git ${args} - ${stderr}`);
+        throw result.error ?? new Error(stderr);
+      }
+      return (result.stdout || '').trim();
     } catch (err) {
       const stderr = (err as { stderr?: string }).stderr ?? String(err);
       logger.warn(`Git command failed: git ${args} - ${stderr}`);
@@ -138,11 +145,11 @@ export class GitHelper {
 export class CredentialHelper {
   static async getCredentialHelper(): Promise<string | null> {
     try {
-      const output = execSync('git config --get credential.helper', {
+      const result = spawnSync('git', ['config', '--get', 'credential.helper'], {
         encoding: 'utf-8',
         timeout: 5_000,
-      }).trim();
-      return output || null;
+      });
+      return result.stdout?.trim() || null;
     } catch {
       return null;
     }
@@ -151,12 +158,13 @@ export class CredentialHelper {
   static async getCredentials(host: string): Promise<{ username: string; password: string } | null> {
     try {
       const input = `protocol=https\nhost=${host}\n`;
-      const output = execSync('git credential fill', {
+      const result = spawnSync('git', ['credential', 'fill'], {
         encoding: 'utf-8',
         timeout: 10_000,
         input,
       });
 
+      const output = result.stdout || '';
       const username = output.match(/username=(.+)/)?.[1];
       const password = output.match(/password=(.+)/)?.[1];
 
