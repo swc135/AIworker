@@ -11,9 +11,10 @@ import { Guardrail } from '../security/guard';
 import { GitHelper } from '../git/helper';
 import { MemorySystem } from './memory';
 import { SessionStore } from './session_store';
-import { resolve } from 'path';
 import { createLogger } from '../utils/logger';
 import { MetricsCollector } from '../utils/metrics';
+import { TaskProgressTracker } from './progress';
+import { resolve } from 'path';
 
 const logger = createLogger('Orchestrator');
 
@@ -35,10 +36,12 @@ export class TaskOrchestrator {
   memorySystem: MemorySystem | null = null;
   sessionStore: SessionStore | null = null;
   metrics: MetricsCollector;
+  progressTracker: TaskProgressTracker;
   private workspace: string = process.cwd();
 
   constructor() {
     this.metrics = new MetricsCollector();
+    this.progressTracker = new TaskProgressTracker();
     this.ruleEngine = new RuleEngine(RULES_BASE_PATH);
     this.skillLoader = new SkillLoader();
     this.skillRegistry = new SkillRegistry();
@@ -157,10 +160,14 @@ export class TaskOrchestrator {
   async startTask(taskConfig: TaskConfig): Promise<string> {
     logger.info(`Starting task: ${taskConfig.task_id}`);
 
+    // Progress tracking
+    this.progressTracker.start(taskConfig.task_id, taskConfig.env.USER_INPUT || taskConfig.task_id);
+
     // Guardrail check
     const userInput = taskConfig.env.USER_INPUT || '';
     if (userInput) {
       const check = await this.guardrail.check(userInput);
+      this.progressTracker.recordGuardrailCheck(taskConfig.task_id, check.allowed, check.violation?.category);
       if (!check.allowed) {
         logger.warn(`Task blocked by guardrail: ${check.violation?.category}`);
         return this.getViolationResponse(check.violation?.category);
@@ -222,6 +229,9 @@ export class TaskOrchestrator {
       systemPrompt,
     };
 
+    // Wire progress tracker into agent loop
+    this.agentLoop.setProgressTracker(this.progressTracker, taskConfig.task_id);
+
     // Run agent loop
     const startTime = Date.now();
     this.metrics.recordTask();
@@ -240,6 +250,7 @@ export class TaskOrchestrator {
       }
 
       logger.info(`Task ${taskConfig.task_id} completed`);
+      this.progressTracker.complete(taskConfig.task_id);
       return result.finalContent;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
@@ -280,4 +291,5 @@ export class TaskOrchestrator {
   getGuardrail(): Guardrail { return this.guardrail; }
   getGitHelper(): GitHelper | null { return this.gitHelper; }
   getMemorySystem(): MemorySystem | null { return this.memorySystem; }
+  getProgressTracker(): TaskProgressTracker { return this.progressTracker; }
 }

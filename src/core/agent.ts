@@ -4,6 +4,7 @@ import { MCPDispatcher } from '@/mcp/client';
 import { createLogger } from '@/utils/logger';
 import { MetricsCollector } from '@/utils/metrics';
 import { ContextWindowManager } from './context_manager';
+import { type TaskProgressTracker } from './progress';
 
 const logger = createLogger('AgentLoop');
 
@@ -15,6 +16,8 @@ export class AgentLoop {
   private metrics?: MetricsCollector;
   private maxTokens?: number;
   private contextManager: ContextWindowManager;
+  private progressTracker?: TaskProgressTracker;
+  private currentTaskId?: string;
 
   constructor(llmProvider: LLMProvider, mcpDispatcher: MCPDispatcher) {
     this.llmProvider = llmProvider;
@@ -38,6 +41,11 @@ export class AgentLoop {
     this.metrics = metrics;
   }
 
+  setProgressTracker(tracker: TaskProgressTracker, taskId: string): void {
+    this.progressTracker = tracker;
+    this.currentTaskId = taskId;
+  }
+
   async run(context: AgentContext): Promise<{ messages: Message[]; finalContent: string }> {
     const messages: Message[] = [...context.messages];
     const tools = context.tools;
@@ -47,6 +55,10 @@ export class AgentLoop {
       iterations++;
       logger.debug(`Agent iteration ${iterations}`);
 
+      if (this.progressTracker && this.currentTaskId) {
+        this.progressTracker.recordIteration(this.currentTaskId, iterations, MAX_ITERATIONS);
+      }
+
       // Trim context if needed before each API call
       const trimmedMessages = this.contextManager.trimToFit(messages, this.maxTokens || 190000);
 
@@ -54,6 +66,10 @@ export class AgentLoop {
 
       if (this.metrics) {
         this.metrics.recordTokens(this.llmProvider.name, response.usage.input_tokens, response.usage.output_tokens);
+      }
+
+      if (this.progressTracker && this.currentTaskId) {
+        this.progressTracker.recordTokens(this.currentTaskId, response.usage.input_tokens, response.usage.output_tokens);
       }
 
       const assistantMsg: Message = {
@@ -69,6 +85,15 @@ export class AgentLoop {
 
       if (response.tool_calls.length > 0) {
         const results = await this.mcpDispatcher.dispatchBatch(response.tool_calls);
+        if (this.progressTracker && this.currentTaskId) {
+          for (const tc of response.tool_calls) {
+            const result = results.find((r) => r.call_id === tc.call_id);
+            this.progressTracker.recordToolCall(this.currentTaskId, tc.tool_name, tc.call_id);
+            if (result) {
+              this.progressTracker.recordToolResult(this.currentTaskId, tc.tool_name, tc.call_id, result.success);
+            }
+          }
+        }
         const resultBlocks: ToolResultBlock[] = results.map((r) => ({
           type: 'tool_result',
           tool_use_id: r.call_id,
