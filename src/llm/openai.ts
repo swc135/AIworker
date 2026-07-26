@@ -208,6 +208,7 @@ export class OpenAIProvider implements LLMProvider {
       ...(openaiTools ? { tools: openaiTools, tool_choice: 'auto' } : {}),
       ...(options?.temperature !== undefined ? { temperature: options.temperature } : {}),
       ...(options?.max_tokens !== undefined ? { max_tokens: options.max_tokens } : {}),
+      ...(this.config.timeout !== undefined ? { timeout: this.config.timeout } : {}),
       ...(options?.stop_sequences ? { stop: options.stop_sequences } : {}),
       ...(stream ? { stream: true } : {}),
     };

@@ -12,10 +12,15 @@ export class AgentLoop {
   private llmProvider: LLMProvider;
   private mcpDispatcher: MCPDispatcher;
   private metrics?: MetricsCollector;
+  private maxTokens?: number;
 
   constructor(llmProvider: LLMProvider, mcpDispatcher: MCPDispatcher) {
     this.llmProvider = llmProvider;
     this.mcpDispatcher = mcpDispatcher;
+  }
+
+  setMaxTokens(maxTokens: number): void {
+    this.maxTokens = maxTokens;
   }
 
   setMetrics(metrics: MetricsCollector): void {
@@ -31,7 +36,7 @@ export class AgentLoop {
       iterations++;
       logger.debug(`Agent iteration ${iterations}`);
 
-      const response = await this.llmProvider.chat(messages, { tools });
+      const response = await this.llmProvider.chat(messages, { tools, max_tokens: this.maxTokens });
 
       if (this.metrics) {
         this.metrics.recordTokens(this.llmProvider.name, response.usage.input_tokens, response.usage.output_tokens);

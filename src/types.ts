@@ -5,6 +5,11 @@ export interface TaskConfig {
   autoApprove: boolean;
   configFiles: ConfigFile[];
   env: Record<string, string>;
+  llmOptions?: {
+    model?: string;
+    temperature?: number;
+    maxTokens?: number;
+  };
 }
 
 export interface ConfigFile {
