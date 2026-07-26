@@ -47,7 +47,7 @@ export class ContextWindowManager {
       const msg = messages[i]!;
       const msgTokens = this.estimateMessageTokens([msg]);
 
-      if (usedTokens + msgTokens > budgetTokens && result.length >= 2) break;
+      if (usedTokens + msgTokens > budgetTokens) break;
 
       usedTokens += msgTokens;
       result.unshift(msg);
@@ -55,6 +55,13 @@ export class ContextWindowManager {
 
     if (result.length < messages.length && result.length > 0) {
       logger.info(`Trimmed ${messages.length - result.length} messages to fit context window`);
+    } else if (result.length === 0) {
+      // Force-keep the most recent message even if it exceeds budget, otherwise API will fail anyway
+      const lastMsg = messages[messages.length - 1];
+      if (lastMsg) {
+        result.push(lastMsg);
+        logger.info(`Forced inclusion of oversized message to prevent empty context`);
+      }
     }
 
     return result;
