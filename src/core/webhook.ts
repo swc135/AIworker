@@ -34,13 +34,6 @@ export class WebhookDispatcher {
     logger.info(`Unregistered webhook: ${url}`);
   }
 
-  registerDefault(): void {
-    this.registerEndpoint({
-      url: 'http://localhost:9999/webhook',
-      events: ['*'],
-      secret: undefined,
-    });
-  }
 
   async dispatch(eventType: string, payload: Record<string, unknown>): Promise<void> {
     const webhookPayload: WebhookPayload = {

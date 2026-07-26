@@ -78,11 +78,7 @@ describe('WebhookDispatcher', () => {
       await expect(dispatcher.dispatch('any.event', {})).resolves.not.toThrow();
     });
 
-    it('registers default webhook', () => {
-      dispatcher.registerDefault();
-      expect(dispatcher.getRegistered()).toContain('http://localhost:9999/webhook');
     });
-  });
 
   describe('dispatch sends real HTTP POST', () => {
     it('sends POST to wildcard-matched endpoint', async () => {

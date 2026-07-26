@@ -269,20 +269,6 @@ export class WebAdapter implements ToolAdapter {
     return parts.join('\n');
   }
 
-  private mockSearch(query: string, count: number): ToolResult {
-    return {
-      call_id: '',
-      success: true,
-      data: {
-        results: [
-          { title: `Search result for: ${query}`, url: 'https://example.com/1', snippet: 'Mock result (search API unavailable)' },
-        ],
-        query,
-        count: 1,
-      },
-    };
-  }
-
   private htmlToMarkdown(html: string): string {
     // Simple HTML to Markdown conversion for common elements
     let md = html;
