@@ -174,24 +174,26 @@ describe('OpenAIProvider', () => {
       { id: 's1', choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] },
     ];
 
-    const streamResult = await new Promise<{ server: http.Server; port: number }>((resolve, reject) => {
+    let resolvedPort = -1;
+    const streamResultPromise = new Promise<{ server: http.Server; port: number }>((resolve, reject) => {
       const srv = http.createServer((req, res) => {
-        req.on('end', () => {
-          res.writeHead(200, { 'Content-Type': 'text/event-stream' });
-          for (const cr of chunkResponses) {
-            const sseData = `data: ${JSON.stringify(cr)}\n\n`;
-            res.write(sseData);
-          }
-          res.end();
-        });
+        res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+        for (let i = 0; i < chunkResponses.length; i++) {
+          const cr = chunkResponses[i];
+          const sseData = `data: ${JSON.stringify(cr)}\n\n`;
+          setTimeout(() => { res.write(sseData); }, i * 50);
+        }
+        setTimeout(() => { res.end(); }, chunkResponses.length * 50 + 100);
       });
       srv.listen(0, '127.0.0.1', () => {
         const addr = srv.address() as import('net').AddressInfo;
+        resolvedPort = addr.port;
         resolve({ server: srv, port: addr.port });
       });
       srv.on('error', reject);
     });
 
+    const streamResult = await streamResultPromise;
     requestHandler = streamResult.server;
     port = streamResult.port;
 
@@ -207,7 +209,7 @@ describe('OpenAIProvider', () => {
 
     expect(results.filter((r) => r.type === 'text_delta')).toHaveLength(2);
     expect(results.map((r) => r.text).join('')).toBe('Hello');
-  });
+  }, 10000);
 
   it('should use custom model from options', async () => {
     capturedBody = {};

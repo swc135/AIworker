@@ -102,28 +102,34 @@ describe('OpenAIProvider stream arg accumulation', () => {
       }],
     });
 
-    const argChunk1 = JSON.stringify({
+    const argChunk1Data = {
       id: 'test',
-      choices: [{
-        index: 0,
-        delta: {
-          tool_calls: [{ index: 0, function: { arguments: '{\n' } },
-        ],
-      }],
-      finish_reason: null,
-      }],
-    });
-
-    const argChunk2 = JSON.stringify({
-      id: 'test',
-      choices: [{
-        index: 0,
-        delta: {
-          tool_calls: [{ index: 0, function: { arguments: '"file": "path.txt"\n}' } ],
+      choices: [
+        {
+          index: 0,
+          delta: {
+            tool_calls: [{ index: 0, function: { arguments: '{\\n' } }],
+          },
+          finish_reason: null,
         },
-        finish_reason: null,
-      }],
-    });
+      ],
+    };
+
+    const argChunk2Data = {
+      id: 'test',
+      choices: [
+        {
+          index: 0,
+          delta: {
+            tool_calls: [{ index: 0, function: { arguments: '"file": "path.txt"\\n}' } }],
+          },
+          finish_reason: null,
+        },
+      ],
+    };
+
+    const argChunk1 = JSON.stringify(argChunk1Data);
+    const argChunk2 = JSON.stringify(argChunk2Data);
 
     const stopChunk = JSON.stringify({
       id: 'test',
