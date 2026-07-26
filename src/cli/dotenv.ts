@@ -44,7 +44,7 @@ export class DotEnvLoader {
       // Match KEY=VALUE or KEY="VALUE" or KEY='VALUE'
       const match = trimmed.match(/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
       if (match) {
-        let value = match[2];
+        let value = match[2] ?? '';
         
         // Remove quotes
         if ((value.startsWith('"') && value.endsWith('"')) ||
@@ -52,7 +52,7 @@ export class DotEnvLoader {
           value = value.slice(1, -1);
         }
         
-        this.vars[match[1]] = value;
+        this.vars[match[1]!] = value;
       }
     }
     
