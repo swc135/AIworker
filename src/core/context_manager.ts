@@ -75,7 +75,7 @@ export class ContextWindowManager {
     for (const assistant of assistantMsgs) {
       const content = typeof assistant.content === 'string' ? assistant.content : '';
       if (typeof assistant.content === 'object' && Array.isArray(assistant.content)) {
-        const textBlocks = assistant.content.filter((b: any): b is { type: 'text'; text: string } => b.type === 'text');
+        const textBlocks = assistant.content.filter((b): b is { type: 'text'; text: string } => typeof b === 'object' && b !== null && (b as unknown as Record<string, unknown>).type === 'text');
         for (const block of textBlocks) {
           const text = block.text || '';
           if (text.length > 300) {
