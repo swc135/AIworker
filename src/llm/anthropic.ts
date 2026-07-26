@@ -203,12 +203,13 @@ export class AnthropicProvider implements LLMProvider {
                   }
                 } else if (chunk.delta?.type === 'stop') {
                   stopped = true;
-                  for (const buf of this._streamToolBuffers) {
+                  for (let i = 0; i < this._streamToolBuffers.length; i++) {
+                    const buf = this._streamToolBuffers[i];
                     if (buf.name && buf.args) {
                       try {
                         yield {
                           type: 'tool_name',
-                          text: `0|${buf.id}|${buf.name}`,
+                          text: `${i}|${buf.id}|${buf.name}`,
                         };
                       } catch {
                         // skip
