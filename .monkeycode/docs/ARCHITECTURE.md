@@ -157,23 +157,41 @@ graph LR
 
 ### 4. LLM 模型代理层
 
-**定位**：统一的模型调用网关，负责请求路由、鉴权和限流。
+**定位**：统一的模型调用网关，负责请求路由、鉴权、限流和重试。
 
 **架构**：
 ```
 OpenCode CLI → proxy.monkeycode-ai.com/v1 → 底层 LLM 提供商
+                ↑
+          RateLimiter (60 req/min, 3 concurrent)
 ```
 
+**支持的 Provider**：
+
+| Provider | 文件 | API 兼容 | 特点 |
+|----------|------|----------|------|
+| `OpenAIProvider` | `src/llm/openai.ts` | OpenAI Chat Completions | 流式输出支持 tool_calls 参数累积 |
+| `AnthropicProvider` | `src/llm/anthropic.ts` | Anthropic Messages API v1 | SSE 事件驱动解析（content_block_start/delta/message_delta） |
+| `MockLLMProvider` | `src/llm/provider.ts` | — | 测试用，按输入模式匹配返回固定响应 |
+
 **当前配置**：
-- **提供商**：`monkeycode-ai`（通过 `@ai-sdk/anthropic` 适配）
+- **默认提供商**：`monkeycode-ai`（通过 `@ai-sdk/anthropic` 适配）
 - **模型**：`monkeycode-basic/qwen3.5-plus`
 - **上下文窗口**：200,000 tokens
 - **输出限制**：32,000 tokens
 - **请求代理地址**：`https://proxy.monkeycode-ai.com/v1`
 
+**限流机制**：
+- `RateLimiter` 使用滑动窗口算法跟踪请求频率
+- 默认配置：60 次请求 / 60 秒窗口，最大并发 3
+- `acquire()` 等待可用 slot，`release()` 释放并发槽位
+- 超时保护：等待时间超过 windowMs 则抛出错误
+- 指数退避重试：`withRetryOnHttpStatus` 处理 429/500/502/503/504
+
 **安全机制**：
-- API Key 由平台注入环境变量，Agent 代码禁止读取（`no-read-llm-env` 规则）
-- 模型请求通过统一代理进行审计和限流
+- API Key 通过 `.env` 文件或 `opencode.json` 的 `modelConfig` 注入
+- Agent 代码使用 `USER_LLM_API_KEY` 等 `USER_` 前缀变量名，不直接引用平台 Key
+- LLM Provider 初始化时从环境变量读取，不扫描敏感环境变量
 
 ---
 
@@ -321,8 +339,13 @@ sequenceDiagram
    - 用户项目使用独立的变量名（`USER_` 前缀）
 
 4. **操作审计**：
-   - 违规行为通过 `report_user_abuse` 上报
-   - 管理员可进行人工审查
+    - 违规行为通过 `report_user_abuse` 上报
+    - 管理员可进行人工审查
+
+5. **速率限制**（`src/security/rate_limiter.ts`）：
+    - `RateLimiter` 防止 LLM API 调用频率超限
+    - 滑动窗口算法 + 并发控制
+    - 默认配置：60 req/min，最大并发 3
 
 ---
 
@@ -354,9 +377,10 @@ sequenceDiagram
 | 层级 | 技术/工具 |
 |------|----------|
 | **运行时** | OpenCode CLI（自研二进制） |
-| **大模型** | Qwen3.5-Plus（通过 Anthropic SDK 兼容层） |
+| **大模型** | Qwen3.5-Plus / GPT-4 / Claude（多 Provider 兼容层） |
+| **限流** | `RateLimiter`（滑动窗口算法） |
 | **插件系统** | `@opencode-ai/plugin` v1.16.0 |
-| **配置格式** | JSONC（`opencode.json`） |
+| **配置格式** | JSONC（`opencode.json`）+ `.env` |
 | **技能定义** | Markdown with YAML frontmatter |
 | **规则定义** | Markdown |
 | **MCP 协议** | Model Context Protocol |
