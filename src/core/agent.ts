@@ -3,6 +3,7 @@ import type { LLMProvider } from '@/types';
 import { MCPDispatcher } from '@/mcp/client';
 import { createLogger } from '@/utils/logger';
 import { MetricsCollector } from '@/utils/metrics';
+import { ContextWindowManager } from './context_manager';
 
 const logger = createLogger('AgentLoop');
 
@@ -13,14 +14,24 @@ export class AgentLoop {
   private mcpDispatcher: MCPDispatcher;
   private metrics?: MetricsCollector;
   private maxTokens?: number;
+  private contextManager: ContextWindowManager;
 
   constructor(llmProvider: LLMProvider, mcpDispatcher: MCPDispatcher) {
     this.llmProvider = llmProvider;
     this.mcpDispatcher = mcpDispatcher;
+    this.contextManager = new ContextWindowManager();
   }
 
   setMaxTokens(maxTokens: number): void {
     this.maxTokens = maxTokens;
+  }
+
+  setContextManager(contextManager: ContextWindowManager): void {
+    this.contextManager = contextManager;
+  }
+
+  getContextManager(): ContextWindowManager {
+    return this.contextManager;
   }
 
   setMetrics(metrics: MetricsCollector): void {
@@ -36,7 +47,10 @@ export class AgentLoop {
       iterations++;
       logger.debug(`Agent iteration ${iterations}`);
 
-      const response = await this.llmProvider.chat(messages, { tools, max_tokens: this.maxTokens });
+      // Trim context if needed before each API call
+      const trimmedMessages = this.contextManager.trimToFit(messages, this.maxTokens || 190000);
+
+      const response = await this.llmProvider.chat(trimmedMessages, { tools, max_tokens: this.maxTokens });
 
       if (this.metrics) {
         this.metrics.recordTokens(this.llmProvider.name, response.usage.input_tokens, response.usage.output_tokens);
