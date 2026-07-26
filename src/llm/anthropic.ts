@@ -146,6 +146,7 @@ export class AnthropicProvider implements LLMProvider {
     const decoder = new TextDecoder();
     let buffer = '';
     this._streamToolBuffers = [];
+    let stopped = false;
 
     try {
       while (true) {
@@ -185,13 +186,13 @@ export class AnthropicProvider implements LLMProvider {
                 if (chunk.delta?.type === 'input_json') {
                   const idx = chunk.index ?? 0;
                   this._streamToolBuffers[idx] = { id: '', name: '', args: '' };
-                } else if (chunk.delta?.type === 'text') {
+                } else if (chunk.delta?.type === 'text' && !stopped) {
                   yield { type: 'text_delta', text: chunk.delta.text || '' };
                 }
                 break;
 
               case 'content_block_delta':
-                if (chunk.delta?.type === 'text') {
+                if (chunk.delta?.type === 'text' && !stopped) {
                   yield { type: 'text_delta', text: chunk.delta.text || '' };
                 } else if (chunk.delta?.type === 'input_json') {
                   const idx = chunk.index ?? 0;
@@ -201,6 +202,7 @@ export class AnthropicProvider implements LLMProvider {
                     yield { type: 'tool_args_delta', text: `${idx}|${existing.args}` };
                   }
                 } else if (chunk.delta?.type === 'stop') {
+                  stopped = true;
                   for (const buf of this._streamToolBuffers) {
                     if (buf.name && buf.args) {
                       try {
@@ -218,7 +220,8 @@ export class AnthropicProvider implements LLMProvider {
                 break;
 
               case 'message_delta':
-                if (chunk.delta?.type === 'stop') {
+                if (chunk.delta?.type === 'stop' && !stopped) {
+                  stopped = true;
                   yield { type: 'stop' };
                 }
                 break;
