@@ -14,7 +14,7 @@ interface SkillFrontmatter {
 }
 
 export function parseFrontmatter(content: string): { metadata: SkillFrontmatter; body: string } {
-  const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+  const match = content.match(/^---\n([\s\S]*?)\n---(?:\n|$)([\s\S]*)$/);
   if (!match) {
     throw new Error('Invalid SKILL.md: missing YAML frontmatter');
   }

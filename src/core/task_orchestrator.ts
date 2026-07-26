@@ -234,6 +234,7 @@ export class TaskOrchestrator {
 
     // Run agent loop
     const startTime = Date.now();
+    let success = true;
     this.metrics.recordTask();
     try {
       const result = await this.agentLoop.run(context);
@@ -253,6 +254,7 @@ export class TaskOrchestrator {
       this.progressTracker.complete(taskConfig.task_id);
       return result.finalContent;
     } catch (err) {
+      success = false;
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       this.metrics.recordAPIEvent({
         toolName: `task_${taskConfig.task_id}`,
@@ -264,7 +266,7 @@ export class TaskOrchestrator {
     } finally {
       this.metrics.recordAPIEvent({
         toolName: `task_${taskConfig.task_id}`,
-        success: true,
+        success,
         durationMs: Date.now() - startTime,
       });
     }

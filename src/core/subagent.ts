@@ -70,7 +70,16 @@ export class SubagentOrchestrator {
         const trimmed = contextManager.trimToFit(messages, maxTokens || 190000);
 
         const response = await this.llmProvider.chat(trimmed, { tools });
-        messages.push({ role: 'assistant', content: response.content });
+        
+        const toolUseBlocks: Array<{ type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }> = response.tool_calls.map((tc) => ({
+          type: 'tool_use',
+          id: tc.call_id,
+          name: tc.tool_name,
+          input: tc.parameters as Record<string, unknown>,
+        }));
+        
+        const allContent = toolUseBlocks.length > 0 ? [...response.content, ...toolUseBlocks] : response.content;
+        messages.push({ role: 'assistant', content: allContent });
 
         if (response.finish_reason === 'stop') {
           const textBlocks = response.content.filter((b) => b.type === 'text') as Array<{ type: 'text'; text: string }>;

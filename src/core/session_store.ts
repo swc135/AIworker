@@ -1,7 +1,8 @@
-import type { Message, TaskConfig } from '@/types';
+import type { Message } from '@/types';
 import { createLogger } from '@/utils/logger';
 import { fileExists, readTextFile, writeFile } from '@/utils/fs';
 import { resolve } from 'path';
+import { mkdir } from 'fs/promises';
 
 const logger = createLogger('SessionStore');
 
@@ -50,8 +51,6 @@ export class SessionStore {
     const filePath = resolve(this.storePath, `${session.session_id}.json`);
 
     // Ensure directory exists
-    const dir = await import('fs/promises');
-    const { mkdir } = await import('fs/promises');
     await mkdir(this.storePath, { recursive: true });
 
     await writeFile(filePath, JSON.stringify(session, null, 2), 'utf-8');

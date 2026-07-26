@@ -72,10 +72,16 @@ export class AgentLoop {
         this.progressTracker.recordTokens(this.currentTaskId, response.usage.input_tokens, response.usage.output_tokens);
       }
 
+      const toolUseBlocks: ToolUseBlock[] = response.tool_calls.map((tc) => ({
+        type: 'tool_use',
+        id: tc.call_id,
+        name: tc.tool_name,
+        input: tc.parameters as Record<string, unknown>,
+      }));
+      
       const assistantMsg: Message = {
         role: 'assistant',
-        content: response.content,
-        tool_call_id: response.tool_calls.length > 0 ? response.tool_calls[0]!.call_id : undefined,
+        content: response.content.length > 0 && toolUseBlocks.length === 0 ? response.content : [...response.content, ...toolUseBlocks],
       };
       messages.push(assistantMsg);
 
