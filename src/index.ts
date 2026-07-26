@@ -13,16 +13,19 @@ export type { RuleCategory } from './types';
 export { SkillLoader, SkillRegistry, SkillExecutor, parseFrontmatter, skillDirExists } from './skills/executor';
 
 // MCP
-export { MCPDispatcher, ToolError, RateLimiter } from './mcp/client';
+export { MCPDispatcher, ToolError } from './mcp/client';
 export type { ToolAdapter } from './mcp/client';
 
 // LLM
-export { MockLLMProvider, OpenAIProvider, createProviderFromConfig } from './llm/index';
+export { MockLLMProvider, OpenAIProvider, AnthropicProvider, createProviderFromConfig } from './llm/index';
 export type { OpenAIProviderConfig } from './llm/openai';
+export type { AnthropicProviderConfig } from './llm/anthropic';
 
 // Security
 export { Guardrail } from './security/guard';
 export type { ViolationCategory, Violation } from './security/guard';
+export { RateLimiter } from './security/rate_limiter';
+export type { RateLimitConfig } from './security/rate_limiter';
 
 // Git
 export { GitHelper, CredentialHelper } from './git/helper';
