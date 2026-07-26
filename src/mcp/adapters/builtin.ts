@@ -214,8 +214,10 @@ export class BuiltinAdapter implements ToolAdapter {
   private handleRequestPreview(params: Record<string, unknown>): { access_url: string; preview_id: string } {
     const port = params.port as number;
     const previewId = `preview_${uuidv4().slice(0, 8)}`;
-    const accessUrl = `https://${previewId}.monkeycode-ai.online`;
-    logger.info(`Preview requested for port ${port} → ${accessUrl}`);
+    // In production, the platform intercepts this and provides actual preview URLs.
+    // This implementation is a stub that returns a placeholder URL recognized by the platform.
+    const accessUrl = `${previewId}://preview.local:${port}`;
+    logger.info(`Preview requested for port ${port}: id=${previewId}`);
     return { access_url: accessUrl, preview_id: previewId };
   }
 }

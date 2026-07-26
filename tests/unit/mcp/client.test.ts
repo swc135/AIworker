@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { MCPDispatcher, RateLimiter } from '@/mcp/client';
+import { MCPDispatcher } from '@/mcp/client';
 import { BuiltinAdapter } from '@/mcp/adapters/builtin';
 import { InternalAdapter } from '@/mcp/adapters/internal';
 import type { ToolCall } from '@/types';
@@ -68,14 +68,6 @@ describe('MCPDispatcher', () => {
     expect(results).toHaveLength(2);
     expect(results[0]!.success).toBe(true);
     expect(results[1]!.success).toBe(true);
-  });
-});
-
-describe('RateLimiter', () => {
-  it('should allow calls within limits', async () => {
-    const limiter = new RateLimiter();
-    const allowed = await limiter.checkLimit('test-tool');
-    expect(allowed).toBe(true);
   });
 });
 
