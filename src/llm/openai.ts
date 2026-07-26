@@ -127,11 +127,14 @@ export class OpenAIProvider implements LLMProvider {
 
     logger.debug(`Chat stream request: ${messages.length} messages, model=${this.config.model}`);
 
-    const response = await this.fetchWithTimeout(`${this.config.baseURL}chat/completions`, {
-      method: 'POST',
-      headers: this.buildHeaders(),
-      body: JSON.stringify(body),
-    });
+    const response = await withRetryOnHttpStatus(
+      () => this.fetchWithTimeout(`${this.config.baseURL}chat/completions`, {
+        method: 'POST',
+        headers: { ...this.buildHeaders(), Accept: 'text/event-stream' },
+        body: JSON.stringify(body),
+      }),
+      { maxRetries: 1, baseDelayMs: 500 },
+    );
 
     if (!response.ok) {
       const errorText = await response.text();

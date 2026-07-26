@@ -40,6 +40,7 @@ export class AgentLoop {
       const assistantMsg: Message = {
         role: 'assistant',
         content: response.content,
+        tool_call_id: response.tool_calls.length > 0 ? response.tool_calls[0]!.call_id : undefined,
       };
       messages.push(assistantMsg);
 
