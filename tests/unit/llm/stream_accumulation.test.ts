@@ -1,15 +1,53 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import http from 'http';
+import type { IncomingMessage, ServerResponse } from 'http';
 import { OpenAIProvider } from '@/llm/openai';
 
 describe('OpenAIProvider stream arg accumulation', () => {
-  const provider = new OpenAIProvider({
-    baseURL: 'https://api.openai.com/v1',
-    apiKey: 'fake',
-    model: 'gpt-4',
+  let server: http.Server;
+  let port = 0;
+
+  function createServer(chunks: string[]): Promise<http.Server> {
+    return new Promise((resolve, reject) => {
+      const srv = http.createServer((_req: IncomingMessage, res: ServerResponse) => {
+        res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+        let delay = 0;
+        for (const chunk of chunks) {
+          const sseData = `data: ${chunk}\n\n`;
+          setTimeout(() => { res.write(sseData); }, delay);
+          delay += 10;
+        }
+        setTimeout(() => { res.end(); }, delay + 50);
+      });
+      srv.listen(0, '127.0.0.1', () => {
+        const addr = srv.address() as import('net').AddressInfo;
+        port = addr.port;
+        resolve(srv);
+      });
+      srv.on('error', reject);
+    });
+  }
+
+  beforeEach(async () => {
+    server = await createServer([]);
   });
 
+  afterEach(async () => {
+    return new Promise<void>((resolve) => {
+      if (server) {
+        server.close(() => resolve());
+      } else {
+        resolve();
+      }
+    });
+  });
+
+  function getBaseUrl(): string {
+    return `http://localhost:${port}/v1`;
+  }
+
   it('yields tool_name chunks for streamed tool calls', async () => {
-    const nameChunk = JSON.stringify({
+    const toolChunk = JSON.stringify({
       id: 'test',
       choices: [{
         index: 0,
@@ -22,33 +60,35 @@ describe('OpenAIProvider stream arg accumulation', () => {
       }],
     });
 
-    const mockResponse = createMockResponse([nameChunk]);
-    const originalFetch = globalThis.fetch;
-    (globalThis as any).fetch = () => Promise.resolve(mockResponse);
+    const stopChunk = JSON.stringify({
+      id: 'test',
+      choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }],
+    });
 
-    try {
-      const chunks: Array<{ type: string; text?: string }> = [];
-      for await (const chunk of provider.chatStream(
-        [{ role: 'user', content: 'list files' }],
-        { tools: [] },
-      )) {
-        chunks.push(chunk);
-      }
+    // Close old server and create new one with chunks
+    await new Promise<void>((resolve) => { server.close(() => resolve()); });
+    server = await createServer([toolChunk, stopChunk]);
 
-      const toolNames = chunks.filter((c) => c.type === 'tool_name').map((c) => c.text);
-      expect(toolNames.length).toBeGreaterThan(0);
-      expect(toolNames[0]).toContain('bash');
-    } finally {
-      (globalThis as any).fetch = originalFetch;
+    const provider = new OpenAIProvider({
+      baseURL: getBaseUrl(),
+      apiKey: 'fake',
+      model: 'gpt-4',
+    });
+
+    const chunks: Array<{ type: string; text?: string }> = [];
+    for await (const chunk of provider.chatStream(
+      [{ role: 'user', content: 'list files' }],
+      { tools: [] },
+    )) {
+      chunks.push(chunk);
     }
+
+    const toolNames = chunks.filter((c) => c.type === 'tool_name').map((c) => c.text);
+    expect(toolNames.length).toBeGreaterThan(0);
+    expect(toolNames[0]).toContain('bash');
   });
 
   it('accumulates argument deltas via stream buffer', async () => {
-    // Build JSON strings using concatenation to avoid esbuild JSX parse issues
-    const p1 = '\u007B"file"\u003A\u0020';
-    const p2 = '\u0022path"\u003A\u0020\u0022';
-    const p3 = 'file.txt\u0022\u007D';
-
     const nameChunk = JSON.stringify({
       id: 'test',
       choices: [{
@@ -67,10 +107,10 @@ describe('OpenAIProvider stream arg accumulation', () => {
       choices: [{
         index: 0,
         delta: {
-          tool_calls: [{ index: 0, function: { arguments: p2 } },
+          tool_calls: [{ index: 0, function: { arguments: '{\n' } },
         ],
-      },
-        finish_reason: null,
+      }],
+      finish_reason: null,
       }],
     });
 
@@ -79,10 +119,9 @@ describe('OpenAIProvider stream arg accumulation', () => {
       choices: [{
         index: 0,
         delta: {
-          tool_calls: [{ index: 0, function: { arguments: p3 } },
-        ],
-      },
-      finish_reason: null,
+          tool_calls: [{ index: 0, function: { arguments: '"file": "path.txt"\n}' } ],
+        },
+        finish_reason: null,
       }],
     });
 
@@ -91,36 +130,24 @@ describe('OpenAIProvider stream arg accumulation', () => {
       choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }],
     });
 
-    const mockResponse = createMockResponse([nameChunk, argChunk1, argChunk2, stopChunk]);
-    const originalFetch = globalThis.fetch;
-    (globalThis as any).fetch = () => Promise.resolve(mockResponse);
+    await new Promise<void>((resolve) => { server.close(() => resolve()); });
+    server = await createServer([nameChunk, argChunk1, argChunk2, stopChunk]);
 
-    try {
-      const chunks: Array<{ type: string; text?: string }> = [];
-      for await (const chunk of provider.chatStream(
-        [{ role: 'user', content: 'read file' }],
-        { tools: [] },
-      )) {
-        chunks.push(chunk);
-      }
+    const provider = new OpenAIProvider({
+      baseURL: getBaseUrl(),
+      apiKey: 'fake',
+      model: 'gpt-4',
+    });
 
-      expect(chunks.some((c) => c.type === 'tool_name')).toBe(true);
-      expect(chunks.some((c) => c.type === 'tool_args_delta')).toBe(true);
-    } finally {
-      (globalThis as any).fetch = originalFetch;
+    const chunks: Array<{ type: string; text?: string }> = [];
+    for await (const chunk of provider.chatStream(
+      [{ role: 'user', content: 'read file' }],
+      { tools: [] },
+    )) {
+      chunks.push(chunk);
     }
+
+    expect(chunks.some((c) => c.type === 'tool_name')).toBe(true);
+    expect(chunks.some((c) => c.type === 'tool_args_delta')).toBe(true);
   });
 });
-
-function createMockResponse(chunks: string[]): Response {
-  const events = chunks.map((c) => `data: ${c}\n\n`).join('');
-  return {
-    ok: true,
-    body: new ReadableStream({
-      start(controller) {
-        controller.enqueue(new TextEncoder().encode(events));
-        controller.close();
-      },
-    }),
-  } as unknown as Response;
-}

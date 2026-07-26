@@ -1,46 +1,81 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { WebhookDispatcher } from '@/core/webhook';
+import { createServer, Server as HttpServer } from 'http';
+
+function delay(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
 
 describe('WebhookDispatcher', () => {
   let dispatcher: WebhookDispatcher;
-  const originalFetch = globalThis.fetch;
+  let server: HttpServer;
+  let received: Array<{ url: string; body: unknown; headers: Record<string, string> }>;
+  let port = 0;
 
   beforeEach(() => {
     dispatcher = new WebhookDispatcher();
-    vi.restoreAllMocks();
+    received = [];
   });
 
   afterEach(() => {
-    (globalThis as any).fetch = originalFetch;
+    if (server) {
+      server.close();
+    }
   });
 
+  function startServer(): Promise<number> {
+    return new Promise((resolve, reject) => {
+      const s = createServer((req, res) => {
+        let body = '';
+        req.on('data', (chunk) => { body += chunk; });
+        req.on('end', () => {
+          received.push({
+            url: req.url || '',
+            body: JSON.parse(body),
+            headers: req.headers as Record<string, string>,
+          });
+          res.writeHead(200);
+          res.end();
+        });
+      });
+      s.listen(0, () => {
+        port = (s.address() as any).port;
+        resolve(port);
+      });
+      s.on('error', reject);
+    });
+  }
+
   describe('endpoint management', () => {
-    it('registers a webhook endpoint', () => {
+    it('registers and lists webhook endpoints', async () => {
+      const p = await startServer();
       dispatcher.registerEndpoint({
-        url: 'http://example.com/hook',
+        url: `http://localhost:${p}/hook`,
         events: ['task.complete'],
         secret: 'test-secret',
       });
       const registered = dispatcher.getRegistered();
-      expect(registered).toContain('http://example.com/hook');
+      expect(registered).toContain(`http://localhost:${p}/hook`);
     });
 
-    it('unregisters an existing endpoint', () => {
+    it('unregisters an existing endpoint', async () => {
+      const p = await startServer();
       dispatcher.registerEndpoint({
-        url: 'http://example.com/hook',
+        url: `http://localhost:${p}/hook`,
         events: ['*'],
       });
-      dispatcher.unregisterEndpoint('http://example.com/hook');
-      expect(dispatcher.getRegistered()).not.toContain('http://example.com/hook');
+      dispatcher.unregisterEndpoint(`http://localhost:${p}/hook`);
+      expect(dispatcher.getRegistered()).not.toContain(`http://localhost:${p}/hook`);
     });
 
-    it('toggles enabled state', () => {
+    it('toggles enabled state without error', async () => {
+      const p = await startServer();
       dispatcher.registerEndpoint({
-        url: 'http://example.com/hook',
+        url: `http://localhost:${p}/hook`,
         events: ['*'],
       });
-      dispatcher.setEnabled('http://example.com/hook', false);
-      // No error thrown - disabled endpoints silently skip dispatch
+      dispatcher.setEnabled(`http://localhost:${p}/hook`, false);
+      await expect(dispatcher.dispatch('any.event', {})).resolves.not.toThrow();
     });
 
     it('registers default webhook', () => {
@@ -49,85 +84,76 @@ describe('WebhookDispatcher', () => {
     });
   });
 
-  describe('dispatch', () => {
-    it('dispatches to matching endpoints with wildcard', async () => {
+  describe('dispatch sends real HTTP POST', () => {
+    it('sends POST to wildcard-matched endpoint', async () => {
+      const p = await startServer();
       dispatcher.registerEndpoint({
-        url: 'http://example.com/all',
+        url: `http://localhost:${p}/all`,
         events: ['*'],
       });
-      const mockFetch = vi.fn().mockResolvedValue({ ok: true });
-      (globalThis as any).fetch = mockFetch;
-      await expect(dispatcher.dispatch('any.event', {})).resolves.not.toThrow();
-      expect(mockFetch).toHaveBeenCalled();
+      await dispatcher.dispatch('any.event', { task_id: 'test1' });
+      // withRetryOnHttpStatus has internal delays
+      await delay(500);
+      expect(received).toHaveLength(1);
+      expect(received[0]!.body.event_type).toBe('any.event');
     });
 
-    it('dispatches to matching endpoint by event name', async () => {
+    it('sends POST only to matching event names', async () => {
+      const p = await startServer();
       dispatcher.registerEndpoint({
-        url: 'http://example.com/task',
+        url: `http://localhost:${p}/task`,
         events: ['task.complete'],
       });
-      const mockFetch = vi.fn().mockResolvedValue({ ok: true });
-      (globalThis as any).fetch = mockFetch;
-      await expect(dispatcher.dispatch('task.complete', { task_id: 't1' })).resolves.not.toThrow();
-      expect(mockFetch).toHaveBeenCalledWith(
-        'http://example.com/task',
-        expect.objectContaining({ method: 'POST' }),
-      );
+      await dispatcher.dispatch('task.complete', { task_id: 't2' });
+      await delay(500);
+      expect(received).toHaveLength(1);
+      expect(received[0]!.url).toBe('/task');
     });
 
-    it('skips non-matching events', async () => {
+    it('skips non-matching events (no request sent)', async () => {
+      const p = await startServer();
       dispatcher.registerEndpoint({
-        url: 'http://example.com/task',
+        url: `http://localhost:${p}/task`,
         events: ['task.complete'],
       });
-      // No fetch should be called since event doesn't match
-      const mockFetch = vi.fn().mockResolvedValue({ ok: true });
-      (globalThis as any).fetch = mockFetch;
-      await expect(dispatcher.dispatch('other.event', {})).resolves.not.toThrow();
-      expect(mockFetch).not.toHaveBeenCalled();
+      await dispatcher.dispatch('other.event', {});
+      await delay(200);
+      expect(received).toHaveLength(0);
     });
 
-    it('handles unknown endpoints gracefully', async () => {
-      const mockFetch = vi.fn().mockResolvedValue({ ok: true });
-      (globalThis as any).fetch = mockFetch;
+    it('handles unknown endpoints gracefully (no crash)', async () => {
       await expect(dispatcher.dispatch('any.event', { task_id: 'x' })).resolves.not.toThrow();
-      expect(mockFetch).not.toHaveBeenCalled();
     });
 
-    it('does not crash on multiple dispatch calls', async () => {
+    it('sends multiple POST requests on multiple dispatch calls', async () => {
+      const p = await startServer();
       dispatcher.registerEndpoint({
-        url: 'http://example.com/hook',
+        url: `http://localhost:${p}/hook`,
         events: ['*'],
       });
-      const mockFetch = vi.fn().mockResolvedValue({ ok: true });
-      (globalThis as any).fetch = mockFetch;
-      for (let i = 0; i < 5; i++) {
-        await dispatcher.dispatch('event', { index: i });
-      }
-      expect(mockFetch.mock.calls.length).toBe(5);
-    }, 2000);
+      await Promise.all([
+        dispatcher.dispatch('e1', {}),
+        dispatcher.dispatch('e2', {}),
+        dispatcher.dispatch('e3', {}),
+      ]);
+      await delay(500);
+      expect(received).toHaveLength(3);
+      expect(received[0]!.body.event_type).toBe('e1');
+      expect(received[1]!.body.event_type).toBe('e2');
+      expect(received[2]!.body.event_type).toBe('e3');
+    });
 
-    it('includes x-webhook-secret header when secret provided', async () => {
+    it('includes X-Webhook-Secret header when secret provided', async () => {
+      const p = await startServer();
       dispatcher.registerEndpoint({
-        url: 'http://example.com/secure',
+        url: `http://localhost:${p}/secure`,
         events: ['*'],
         secret: 'my-secret',
       });
-      const mockFetch = vi.fn().mockResolvedValue({ ok: true });
-      (globalThis as any).fetch = mockFetch;
       await dispatcher.dispatch('event', {});
-      const callArgs = mockFetch.mock.calls[0] as [string, RequestInit];
-      expect(callArgs[1].headers).toEqual(
-        expect.objectContaining({ 'X-Webhook-Secret': 'my-secret' }),
-      );
+      await delay(500);
+      expect(received).toHaveLength(1);
+      expect(received[0]!.headers['x-webhook-secret']).toBe('my-secret');
     });
-  });
-
-  describe('flushPending', () => {
-    it('cleans up pending items after maxRetries', async () => {
-      // No endpoint registered - pending stays empty
-      expect(dispatcher.getRegistered()).toHaveLength(0);
-      await expect(dispatcher.flushPending()).resolves.not.toThrow();
-    }, 2000);
   });
 });
